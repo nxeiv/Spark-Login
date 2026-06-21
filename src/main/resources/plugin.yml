@@ -1,0 +1,27 @@
+name: SparkLogin
+version: 2.0.0
+main: com.pavitraxd.sparklogin.SparkLoginPlugin
+api-version: '1.21'
+author: PavitraXD
+description: Pre-join graphical authentication Minecraft plugin using the Paper Dialog API.
+website: https://github.com/PavitraXD/SparkLogin
+permissions:
+  sparklogin.admin:
+    description: Allows reloading the plugin configuration and managing accounts.
+    default: op
+  sparklogin.player:
+    description: Allows player commands like /changepassword and /accounts.
+    default: true
+commands:
+  sparklogin:
+    description: SparkLogin management command.
+    permission: sparklogin.admin
+    usage: /sparklogin [reload|unregister|resetpassword|info|migrate]
+  changepassword:
+    description: Change your account password in-game.
+    permission: sparklogin.player
+    usage: /changepassword <old_password> <new_password> <confirm_password>
+  accounts:
+    description: List all accounts registered from your IP address.
+    permission: sparklogin.player
+    usage: /accounts

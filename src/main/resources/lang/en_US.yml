@@ -1,0 +1,46 @@
+# =====================================================================
+# SparkLogin Translation Properties (en_US)
+# Supports Adventure MiniMessage formatting (e.g. <gold>, <red>, <bold>)
+# =====================================================================
+
+login:
+  dialog:
+    title: "<gold><bold>SparkLogin - Verification Required</bold></gold>"
+    body: "<white>Welcome back, <yellow>{player}</yellow>!\nPlease enter your password to authenticate and join the world.</white>"
+    password-label: "<yellow>Enter Password</yellow>"
+    submit-button: "<green>Login</green>"
+    cancel-button: "<red>Quit</red>"
+  status:
+    success: "<green>Successfully authenticated. Welcome to the server!</green>"
+    incorrect-password: "<red>Incorrect password! Please try again ({attempts}/{max_attempts}).</red>"
+    too-many-attempts: "<red>Too many incorrect login attempts! Please reconnect.</red>"
+
+register:
+  dialog:
+    title: "<gold><bold>SparkLogin - Account Creation</bold></gold>"
+    body: "<white>Welcome <yellow>{player}</yellow>!\nYou do not have an account registered yet.\nPlease secure your profile by creating a password below.</white>"
+    password-label: "<yellow>Choose a Password ({min}-{max} characters)</yellow>"
+    confirm-label: "<yellow>Confirm Password</yellow>"
+    submit-button: "<green>Register</green>"
+    cancel-button: "<red>Quit</red>"
+  status:
+    success: "<green>Registration complete! Your profile is safe. Enjoy your play!</green>"
+    password-too-short: "<red>Your password is too short! Minimum length is {min} characters.</red>"
+    password-too-long: "<red>Your password is too long! Maximum length is {max} characters.</red>"
+    passwords-dont-match: "<red>Passwords do not match! Please verify your spelling.</red>"
+  error:
+    ip-limit: "<red>Too many accounts are registered from your IP address. Registration is disabled for this IP.</red>"
+
+reset:
+  dialog:
+    title: "<gold><bold>⚠ Account Reset Detected</bold></gold>"
+    body: "<white>An administrator reset your account.\nYour previous password is no longer valid.\nYou must create a new password before joining the server.</white>"
+    continue-button: "<green>Continue</green>"
+
+session:
+  restored: "<green>Your login session was restored automatically. Welcome back!</green>"
+
+general:
+  canceled: "<red>Authentication process canceled. Connection terminated.</red>"
+  no-permission: "<red>You do not have permission to execute this command.</red>"
+  reload-success: "<green>Configuration and localization properties successfully reloaded!</green>"

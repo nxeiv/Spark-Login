@@ -1,0 +1,57 @@
+# =====================================================================
+# SparkLogin Configuration File
+# Developed by PavitraXD for Minecraft Paper 1.21.11+
+# =====================================================================
+
+database:
+  # Database type to use (only SQLITE is supported currently, with custom connection pooling)
+  type: SQLITE
+  # File name for the SQLite database (located inside the plugin's folder)
+  file: database.db
+  # Connection pool settings (HikariCP)
+  pool:
+    max-lifetime-ms: 1800000 # 30 minutes
+    idle-timeout-ms: 600000   # 10 minutes
+    connection-timeout-ms: 10000 # 10 seconds
+    maximum-pool-size: 10
+    minimum-idle: 5
+
+# Performance optimizations for SMP servers
+cache:
+  # Account cache TTL in minutes (how long to keep accounts in memory)
+  account-ttl-minutes: 5
+  # Maximum number of accounts to cache (0 = unlimited)
+  max-size: 1000
+
+security:
+  # BCrypt cost factor (recommended: 10 to 14. Higher means safer but slower)
+  bcrypt-cost-factor: 12
+  # Max login attempts before temporary kick
+  max-login-attempts: 3
+  # Disconnect delay when entering incorrect credentials (milliseconds)
+  # This prevents rapid fire brute-forcing
+  brute-force-delay-ms: 1500
+  # If true, players whose IP has changed since last login must re-authenticate
+  # even if they have a valid session
+  require-login-on-ip-change: true
+
+registration:
+  # Password policy limits
+  min-password-length: 6
+  # Maximum length for inputs in registration dialogs
+  max-password-length: 64
+  # Force matching of confirm password field
+  require-confirmation-field: true
+  # Maximum number of accounts allowed per IP address (0 = unlimited)
+  max-accounts-per-ip: 3
+  # If true, players exceeding the IP account limit are disconnected
+  # If false, they receive a warning message but are still allowed to register
+  kick-on-limit: true
+
+session:
+  # Maintain login sessions to bypass credentials if player rejoins quickly
+  enabled: true
+  # Dynamic session duration in hours
+  duration-hours: 12
+  # Keep dynamic sessions across server restarts
+  persistent: true
