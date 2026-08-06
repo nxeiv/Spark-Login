@@ -5,11 +5,11 @@
 
     <groupId>com.pavitraxd</groupId>
     <artifactId>sparklogin</artifactId>
-    <version>2.0.0</version>
+    <version>3.0.0</version>
     <packaging>jar</packaging>
 
     <name>SparkLogin</name>
-    <description>Pre-join graphical authentication Minecraft plugin using the Paper Dialog API.</description>
+    <description>Graphical authentication Minecraft plugin using the Paper Dialog API.</description>
     <url>https://github.com/PavitraXD/SparkLogin</url>
 
     <properties>

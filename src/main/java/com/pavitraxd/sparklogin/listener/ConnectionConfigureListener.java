@@ -55,6 +55,8 @@ public class ConnectionConfigureListener implements Listener {
 
         // Track the connection for dialog callback use
         plugin.registerActiveJoinConnection(uuid, connection, audience);
+        // Mark this player as handled by pre-join so PostJoinAuthListener skips them
+        plugin.markPreJoinHandled(uuid);
 
         // --- Block on the account lookup ---
         Account account;

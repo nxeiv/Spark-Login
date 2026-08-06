@@ -5,7 +5,7 @@
 
 login:
   dialog:
-    title: "<gold><bold>SparkLogin - Verification Required</bold></gold>"
+    title: "<gold><bold>{plugin_name} - Verification Required</bold></gold>"
     body: "<white>Welcome back, <yellow>{player}</yellow>!\nPlease enter your password to authenticate and join the world.</white>"
     password-label: "<yellow>Enter Password</yellow>"
     submit-button: "<green>Login</green>"
@@ -17,7 +17,7 @@ login:
 
 register:
   dialog:
-    title: "<gold><bold>SparkLogin - Account Creation</bold></gold>"
+    title: "<gold><bold>{plugin_name} - Account Creation</bold></gold>"
     body: "<white>Welcome <yellow>{player}</yellow>!\nYou do not have an account registered yet.\nPlease secure your profile by creating a password below.</white>"
     password-label: "<yellow>Choose a Password ({min}-{max} characters)</yellow>"
     confirm-label: "<yellow>Confirm Password</yellow>"
@@ -33,7 +33,7 @@ register:
 
 reset:
   dialog:
-    title: "<gold><bold>⚠ Account Reset Detected</bold></gold>"
+    title: "<gold><bold>⚠ {plugin_name} - Account Reset Detected</bold></gold>"
     body: "<white>An administrator reset your account.\nYour previous password is no longer valid.\nYou must create a new password before joining the server.</white>"
     continue-button: "<green>Continue</green>"
 

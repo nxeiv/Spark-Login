@@ -3,6 +3,12 @@
 # Developed by PavitraXD for Minecraft Paper 1.21.11+
 # =====================================================================
 
+branding:
+  # The prefix shown in dialog titles and messages.
+  # Change this to match your server's branding.
+  # Used as {plugin_name} placeholder in lang/en_US.yml
+  prefix: "SparkLogin"
+
 database:
   # Database type to use (only SQLITE is supported currently, with custom connection pooling)
   type: SQLITE

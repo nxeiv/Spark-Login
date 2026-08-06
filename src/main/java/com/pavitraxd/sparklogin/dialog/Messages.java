@@ -55,7 +55,10 @@ public class Messages {
      */
     public Component getComponent(String key, String def, Map<String, String> placeholders) {
         String raw = getRaw(key, def);
-        
+
+        // Inject global branding placeholder first
+        raw = raw.replace("{plugin_name}", plugin.getConfig().getString("branding.prefix", "SparkLogin"));
+
         if (placeholders != null) {
             for (Map.Entry<String, String> entry : placeholders.entrySet()) {
                 raw = raw.replace("{" + entry.getKey() + "}", entry.getValue());

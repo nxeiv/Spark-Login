@@ -1,6 +1,7 @@
 package com.pavitraxd.sparklogin;
 
 import com.pavitraxd.sparklogin.auth.AuthService;
+import com.pavitraxd.sparklogin.auth.PostJoinAuthManager;
 import com.pavitraxd.sparklogin.auth.SessionManager;
 import com.pavitraxd.sparklogin.command.ChangePasswordCommand;
 import com.pavitraxd.sparklogin.command.MigrateAuthMeCommand;
@@ -12,6 +13,7 @@ import com.pavitraxd.sparklogin.dialog.Messages;
 import com.pavitraxd.sparklogin.listener.ConnectionConfigureListener;
 import com.pavitraxd.sparklogin.listener.DialogInputListener;
 import com.pavitraxd.sparklogin.listener.PlayerDisconnectListener;
+import com.pavitraxd.sparklogin.listener.PostJoinAuthListener;
 import io.papermc.paper.connection.PlayerConfigurationConnection;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.text.Component;
@@ -28,6 +30,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -50,6 +53,13 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
     private final Map<UUID, CompletableFuture<Boolean>> pendingAuthFutures = new ConcurrentHashMap<>();
     private MigrateAuthMeCommand migrateAuthMeCommand;
 
+    // Post-join auth manager (for versions without pre-join dialog support)
+    private PostJoinAuthManager postJoinAuthManager;
+    // Whether this server supports the pre-join Dialog API (Paper 1.21.11+)
+    private boolean preJoinSupported;
+    // Players whose auth was already handled by the pre-join flow
+    private final Set<UUID> preJoinHandled = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
     @Override
     public void onEnable() {
         getLogger().info("=================================================");
@@ -69,11 +79,19 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         this.authService = new AuthService(this);
         this.sessionManager = new SessionManager(this);
         this.migrateAuthMeCommand = new MigrateAuthMeCommand(this);
+        this.postJoinAuthManager = new PostJoinAuthManager();
+
+        // Detect whether the pre-join Dialog API is available (Paper 1.21.11+)
+        this.preJoinSupported = isClassPresent("io.papermc.paper.event.connection.configuration.AsyncPlayerConnectionConfigureEvent");
+        getLogger().info("Pre-join Dialog API supported: " + preJoinSupported);
 
         // Register event listener modules
-        registerListener(new ConnectionConfigureListener(this));
+        if (preJoinSupported) {
+            registerListener(new ConnectionConfigureListener(this));
+        }
         registerListener(new DialogInputListener(this));
         registerListener(new PlayerDisconnectListener(this));
+        registerListener(new PostJoinAuthListener(this));
 
         // Register /sparklogin command (admin)
         Objects.requireNonNull(getCommand("sparklogin")).setExecutor(this);
@@ -145,6 +163,36 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
 
     public SessionManager getSessionManager() {
         return sessionManager;
+    }
+
+    public PostJoinAuthManager getPostJoinAuthManager() {
+        return postJoinAuthManager;
+    }
+
+    public boolean isPreJoinSupported() {
+        return preJoinSupported;
+    }
+
+    /** Called by ConnectionConfigureListener to mark that pre-join handled this player. */
+    public void markPreJoinHandled(UUID uuid) {
+        preJoinHandled.add(uuid);
+    }
+
+    public boolean wasHandledByPreJoin(UUID uuid) {
+        return preJoinHandled.contains(uuid);
+    }
+
+    public void clearPreJoinHandled(UUID uuid) {
+        preJoinHandled.remove(uuid);
+    }
+
+    private static boolean isClassPresent(String className) {
+        try {
+            Class.forName(className);
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
     }
 
     public DatabaseManager getDatabaseManager() {

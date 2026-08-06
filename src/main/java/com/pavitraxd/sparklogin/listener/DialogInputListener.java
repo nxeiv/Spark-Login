@@ -3,12 +3,14 @@ package com.pavitraxd.sparklogin.listener;
 import com.pavitraxd.sparklogin.SparkLoginPlugin;
 import com.pavitraxd.sparklogin.dialog.DialogFactory;
 import io.papermc.paper.connection.PlayerConfigurationConnection;
+import io.papermc.paper.connection.PlayerGameConnection;
 import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.event.player.PlayerCustomClickEvent;
 import net.kyori.adventure.audience.Audience;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 
@@ -35,50 +37,193 @@ public class DialogInputListener implements Listener {
 
     @EventHandler
     public void onPlayerCustomClick(PlayerCustomClickEvent event) {
-        if (!(event.getCommonConnection() instanceof PlayerConfigurationConnection connection)) {
-            return;
-        }
-
-        UUID uuid = connection.getProfile().getId();
-        String playerName = connection.getProfile().getName();
-        if (uuid == null || playerName == null) {
-            return;
-        }
-
         Key clickId = event.getIdentifier();
-        if (clickId == null) {
+        if (clickId == null || !clickId.namespace().equals("sparklogin")) return;
+
+        // --- Pre-join path (1.21.11+) ---
+        if (event.getCommonConnection() instanceof PlayerConfigurationConnection connection) {
+            UUID uuid = connection.getProfile().getId();
+            String playerName = connection.getProfile().getName();
+            if (uuid == null || playerName == null) return;
+
+            DialogResponseView responseView = event.getDialogResponseView();
+            Audience audience = connection.getAudience();
+
+            if (DialogFactory.LOGIN_CANCEL.equals(clickId) || DialogFactory.REGISTER_CANCEL.equals(clickId)) {
+                audience.sendMessage(plugin.getMessages().getComponent("general.canceled", "<red>Authentication process canceled. Connection terminated.</red>"));
+                plugin.deregisterActiveJoinConnection(uuid);
+                plugin.completePendingAuth(uuid, false);
+                return;
+            }
+            if (DialogFactory.RESET_CONTINUE.equals(clickId)) {
+                audience.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName));
+                return;
+            }
+            if (DialogFactory.LOGIN_SUBMIT.equals(clickId)) {
+                handleLoginSubmit(connection, audience, responseView, uuid, playerName);
+            } else if (DialogFactory.REGISTER_SUBMIT.equals(clickId)) {
+                handleRegisterSubmit(connection, audience, responseView, uuid, playerName);
+            }
             return;
         }
 
-        // Only handle our own SparkLogin actions
-        if (!clickId.namespace().equals("sparklogin")) {
-            return;
-        }
+        // --- Post-join path (older versions / in-game dialog) ---
+        if (!(event.getCommonConnection() instanceof PlayerGameConnection gameConnection)) return;
+        Player player = gameConnection.getPlayer();
+        if (player == null) return;
+        UUID uuid = player.getUniqueId();
+        String playerName = player.getName();
+
+        // Only process if this player is actually pending post-join auth
+        if (!plugin.getPostJoinAuthManager().isPending(uuid)) return;
 
         DialogResponseView responseView = event.getDialogResponseView();
-        Audience audience = connection.getAudience();
 
-        // Handle cancellations — complete future as failure, config listener will disconnect
         if (DialogFactory.LOGIN_CANCEL.equals(clickId) || DialogFactory.REGISTER_CANCEL.equals(clickId)) {
-            Component msg = plugin.getMessages().getComponent("general.canceled", "<red>Authentication process canceled. Connection terminated.</red>");
-            audience.sendMessage(msg);
-            plugin.deregisterActiveJoinConnection(uuid);
-            plugin.completePendingAuth(uuid, false);
+            plugin.getPostJoinAuthManager().removePending(uuid);
+            player.kick(plugin.getMessages().getComponent("general.canceled", "<red>Authentication process canceled. Connection terminated.</red>"));
             return;
         }
-
-        // Account reset info dialog → Continue → show register dialog
         if (DialogFactory.RESET_CONTINUE.equals(clickId)) {
-            audience.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName));
+            player.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName));
             return;
         }
-
         if (DialogFactory.LOGIN_SUBMIT.equals(clickId)) {
-            handleLoginSubmit(connection, audience, responseView, uuid, playerName);
+            handlePostJoinLoginSubmit(player, responseView, uuid, playerName);
         } else if (DialogFactory.REGISTER_SUBMIT.equals(clickId)) {
-            handleRegisterSubmit(connection, audience, responseView, uuid, playerName);
+            handlePostJoinRegisterSubmit(player, responseView, uuid, playerName);
         }
     }
+
+    private String resolvePlayerIp(Player player) {
+        try {
+            if (player.getAddress() != null && player.getAddress().getAddress() != null) {
+                return player.getAddress().getAddress().getHostAddress();
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Post-join handlers
+    // -------------------------------------------------------------------------
+
+    private void handlePostJoinLoginSubmit(Player player, DialogResponseView responseView, UUID uuid, String playerName) {
+        String password = responseView == null ? null : responseView.getText("password");
+        if (password == null || password.isEmpty()) {
+            player.sendMessage(Component.text("Password input cannot be empty."));
+            player.showDialog(plugin.getDialogFactory().buildLoginDialog(playerName));
+            return;
+        }
+
+        plugin.getAccountDAO().getAccount(uuid).thenAccept(account -> {
+            if (!player.isOnline()) return;
+            if (account == null) {
+                plugin.getServer().getScheduler().runTask(plugin, () ->
+                        player.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName)));
+                return;
+            }
+            plugin.getAuthService().verifyPassword(password, account).thenAccept(matches -> {
+                if (!player.isOnline()) return;
+                if (matches) {
+                    plugin.getAuthService().resetAttempts(uuid);
+                    String ip = resolvePlayerIp(player);
+                    plugin.getAccountDAO().updateLastLogin(uuid, System.currentTimeMillis(), ip);
+                    plugin.getAuthService().autoUpgradeHash(account, password).thenAccept(v ->
+                            plugin.getSessionManager().createSession(uuid).thenAccept(token -> {
+                                if (!player.isOnline()) return;
+                                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                                    plugin.getPostJoinAuthManager().unlock(player);
+                                    player.sendMessage(plugin.getMessages().getComponent(
+                                            "login.status.success", "<green>Successfully authenticated. Welcome to the server!</green>"));
+                                });
+                            }));
+                } else {
+                    int attempts = plugin.getAuthService().incrementAttempts(uuid);
+                    int maxAttempts = plugin.getConfig().getInt("security.max-login-attempts", 3);
+                    if (attempts >= maxAttempts) {
+                        plugin.getServer().getScheduler().runTask(plugin, () -> {
+                            plugin.getPostJoinAuthManager().removePending(uuid);
+                            player.kick(plugin.getMessages().getComponent(
+                                    "login.status.too-many-attempts", "<red>Too many incorrect login attempts! Please reconnect.</red>"));
+                            plugin.getAuthService().resetAttempts(uuid);
+                        });
+                    } else {
+                        Map<String, String> ph = new HashMap<>();
+                        ph.put("attempts", String.valueOf(attempts));
+                        ph.put("max_attempts", String.valueOf(maxAttempts));
+                        Component errMsg = plugin.getMessages().getComponent(
+                                "login.status.incorrect-password", "<red>Incorrect password! ({attempts}/{max_attempts})</red>", ph);
+                        long delay = plugin.getConfig().getLong("security.brute-force-delay-ms", 1500);
+                        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                            if (!player.isOnline() || !plugin.getPostJoinAuthManager().isPending(uuid)) return;
+                            player.sendMessage(errMsg);
+                            player.showDialog(plugin.getDialogFactory().buildLoginDialog(playerName));
+                        }, delay / 50L);
+                    }
+                }
+            });
+        }).exceptionally(err -> {
+            plugin.getLogger().severe("DB failure on post-join login for " + uuid + ": " + err.getMessage());
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                plugin.getPostJoinAuthManager().removePending(uuid);
+                player.kick(Component.text("Data loading failed. Try connecting again."));
+            });
+            return null;
+        });
+    }
+
+    private void handlePostJoinRegisterSubmit(Player player, DialogResponseView responseView, UUID uuid, String playerName) {
+        String password = responseView == null ? null : responseView.getText("password");
+        String confirm = responseView == null ? null : responseView.getText("confirm_password");
+
+        if (password == null || password.isEmpty()) {
+            player.sendMessage(Component.text("Password must not be blank."));
+            plugin.getServer().getScheduler().runTask(plugin, () ->
+                    player.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName)));
+            return;
+        }
+        if (!plugin.getAuthService().isPasswordLengthValid(password)) {
+            Map<String, String> limits = new HashMap<>();
+            limits.put("min", String.valueOf(plugin.getConfig().getInt("registration.min-password-length", 6)));
+            limits.put("max", String.valueOf(plugin.getConfig().getInt("registration.max-password-length", 64)));
+            player.sendMessage(plugin.getMessages().getComponent(
+                    "register.status.password-too-short", "<red>Password too short! Min {min} characters.</red>", limits));
+            plugin.getServer().getScheduler().runTask(plugin, () ->
+                    player.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName)));
+            return;
+        }
+        boolean reqConfirm = plugin.getConfig().getBoolean("registration.require-confirmation-field", true);
+        if (reqConfirm && (confirm == null || !confirm.equals(password))) {
+            player.sendMessage(plugin.getMessages().getComponent(
+                    "register.status.passwords-dont-match", "<red>Passwords do not match!</red>"));
+            plugin.getServer().getScheduler().runTask(plugin, () ->
+                    player.showDialog(plugin.getDialogFactory().buildRegisterDialog(playerName)));
+            return;
+        }
+
+        String ip = resolvePlayerIp(player);
+        plugin.getAuthService().registerNewAccount(uuid, playerName, password, ip).thenAccept(newAccount ->
+                plugin.getSessionManager().createSession(uuid).thenAccept(token -> {
+                    if (!player.isOnline()) return;
+                    plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        plugin.getPostJoinAuthManager().unlock(player);
+                        player.sendMessage(plugin.getMessages().getComponent(
+                                "register.status.success", "<green>Registration complete! Enjoy your play!</green>"));
+                    });
+                })).exceptionally(err -> {
+            plugin.getLogger().severe("DB registration failure for " + uuid + ": " + err.getMessage());
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                plugin.getPostJoinAuthManager().removePending(uuid);
+                player.kick(Component.text("Registration failed. Try again."));
+            });
+            return null;
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Pre-join helpers
+    // -------------------------------------------------------------------------
 
     /**
      * Extracts the player's IP address from the connection, falling back gracefully.
