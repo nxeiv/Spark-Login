@@ -1,6 +1,15 @@
+<div align="center">
+
 # 🔐 SparkLogin
+
+<img src="https://img.shields.io/badge/LICENSE-MIT-green?style=for-the-badge" alt="License">
+<img src="https://img.shields.io/badge/Platform-PAPER-blue?style=for-the-badge" alt="Platform">
+<img src="https://img.shields.io/badge/Author-PavitraXD-orange?style=for-the-badge" alt="Author">
+
 **Modern graphical authentication for Paper servers.**  
 No chat commands. No bloat. Just a clean dialog UI that gets players in fast and safe.
+
+</div>
 
 ---
 
