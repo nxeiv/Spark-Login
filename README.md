@@ -1,42 +1,46 @@
 <div align="center">
 
-# 🔐 SparkLogin
+# SparkLogin
 
-<img src="https://img.shields.io/badge/LICENSE-MIT-green?style=for-the-badge" alt="License">
-<img src="https://img.shields.io/badge/Platform-PAPER-blue?style=for-the-badge" alt="Platform">
-<img src="https://img.shields.io/badge/Author-PavitraXD-orange?style=for-the-badge" alt="Author">
+**A graphical authentication plugin for Paper servers.**
 
-**Modern graphical authentication for Paper servers.**  
-No chat commands. No bloat. Just a clean dialog UI that gets players in fast and safe.
+Cottage-maintained compatibility build based on upstream SparkLogin 3.0.0.
 
 </div>
 
 ---
 
-## ✨ Features
+## Compatibility
 
-- **Dialog UI** — graphical login & register screens, no typing commands in chat
-- **Smart version routing** — pre-join dialog on 1.21.11+, post-join dialog on 1.21.4–1.21.10
-- **Full lockdown** — movement, chat, commands, inventory all blocked until authenticated
-- **Session auto-login** — returning players skip the dialog if their session is still valid
-- **BCrypt security** — configurable cost factor, brute-force delay, max attempt kicks
-- **AuthMe migration** — one command imports all accounts, supports SHA256 & BCrypt hashes
-- **Custom branding** — change the dialog title prefix to match your server
-- **Async everything** — HikariCP + SQLite with WAL mode, zero server lag
+| Component | Requirement |
+|---|---|
+| Minecraft server | Paper 26.3+ |
+| Java runtime / build JDK | Java 25 |
+| UI | Paper Dialog API |
+| Database | SQLite (embedded) |
 
----
+This fork targets Paper's 26.3 API generation. It is not intended to load on older 1.21.x servers.
 
-## 🛠 Commands
+## Features
+
+- Graphical login and registration dialogs.
+- Pre-join authentication through Paper's connection configuration API.
+- Session-based auto-login with optional IP-change validation.
+- BCrypt password hashing and automatic upgrade of supported legacy AuthMe hashes.
+- Configurable login attempts, delay, password length, and account-per-IP limits.
+- AuthMe account migration with a database backup.
+- Configurable dialog text using Adventure MiniMessage.
+- SQLite storage with HikariCP connection pooling.
+
+## Commands
 
 **Players**
 ```
-/login <password>
-/register <password> <confirm>
 /changepassword <old> <new> <confirm>
-/logout
+/accounts
 ```
 
-**Admins** `(sparklogin.admin)`
+**Administrators** (`sparklogin.admin`)
 ```
 /sparklogin reload
 /sparklogin info <player>
@@ -45,50 +49,51 @@ No chat commands. No bloat. Just a clean dialog UI that gets players in fast and
 /sparklogin migrate authme
 ```
 
----
+## Configuration
 
-## ⚙️ Configuration Highlights
+Configuration is generated in `plugins/SparkLogin/config.yml`. Dialog text is stored in `plugins/SparkLogin/lang/en_US.yml`.
+
+Important settings:
 
 ```yaml
-branding:
-  prefix: "SparkLogin"        # shown in all dialog titles
-
 security:
   bcrypt-cost-factor: 12
   max-login-attempts: 3
   brute-force-delay-ms: 1500
+  require-login-on-ip-change: true
+
+registration:
+  min-password-length: 6
+  max-password-length: 64
+  max-accounts-per-ip: 3
+  kick-on-limit: true
 
 session:
   enabled: true
   duration-hours: 12
-
-registration:
-  min-password-length: 6
-  max-accounts-per-ip: 3
+  persistent: true
 ```
 
-All dialog text is fully customizable in `lang/en_US.yml` using MiniMessage formatting.
+## Build
 
----
+The project uses Maven. Build with JDK 25:
 
-## 📦 Installation
+```bash
+mvn --batch-mode clean verify
+```
 
-1. Drop `SparkLogin-3.0.0.jar` into your `plugins/` folder
-2. Restart the server
-3. Edit `plugins/SparkLogin/config.yml` and `lang/en_US.yml`
-4. Done
+The shaded plugin is written to `target/SparkLogin-3.1.0.jar`.
 
----
+## Upgrade notes
 
-## 📋 Requirements
+1. Stop the server before replacing the plugin.
+2. Back up the entire `plugins/SparkLogin/` directory, including `database.db` and configuration files.
+3. Replace the old JAR with `SparkLogin-3.1.0.jar`.
+4. Start the server and check the startup log for successful database initialization.
+5. Test registration, login, session restore, password change, and admin account management before inviting players back.
 
-| | |
-|---|---|
-| **Server** | Paper 1.21.4+ |
-| **Java** | 21+ |
-| **Dependencies** | None (all shaded) |
+Do not delete the backup until the new build has been checked on the live server.
 
----
+## Credits
 
-## 📄 License
-Developed by **PavitraXD** — version `3.0.0`
+Original project: [PavitraXD/Spark-Login](https://github.com/pavitraxd/Spark-Login). This fork keeps the upstream project identity and adds a Cottage-maintained Paper 26.3 compatibility build.
