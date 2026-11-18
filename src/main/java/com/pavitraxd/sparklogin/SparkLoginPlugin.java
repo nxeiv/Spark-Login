@@ -30,7 +30,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -49,15 +48,13 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
     // Tracks connections during the pre-join authentication phase
     private final Map<UUID, PlayerConfigurationConnection> activeConnections = new ConcurrentHashMap<>();
     private final Map<UUID, Audience> activeAudiences = new ConcurrentHashMap<>();
-    // Pending auth futures: the config listener thread blocks on these until DialogInputListener completes them
+    // Pending auth futures: the config listener blocks on these until DialogInputListener completes them
     private final Map<UUID, CompletableFuture<Boolean>> pendingAuthFutures = new ConcurrentHashMap<>();
     private MigrateAuthMeCommand migrateAuthMeCommand;
 
-    // Post-join auth manager (for versions without pre-join dialog support)
+    // Post-join auth manager (for compatibility paths without the pre-join Dialog API)
     private PostJoinAuthManager postJoinAuthManager;
-    // Whether this server supports the pre-join Dialog API (Paper 1.21.11+)
     private boolean preJoinSupported;
-    // Players whose auth was already handled by the pre-join flow
     private final Set<UUID> preJoinHandled = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     @Override
@@ -66,10 +63,8 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         getLogger().info("Initializing SparkLogin designed by PavitraXD...");
         getLogger().info("=================================================");
 
-        // Establish files and setup default configurations
         saveDefaultConfig();
 
-        // Instantiate Managers and Services
         this.databaseManager = new DatabaseManager(this);
         this.databaseManager.initialize();
 
@@ -81,11 +76,10 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         this.migrateAuthMeCommand = new MigrateAuthMeCommand(this);
         this.postJoinAuthManager = new PostJoinAuthManager();
 
-        // Detect whether the pre-join Dialog API is available (Paper 1.21.11+)
+        // Paper's pre-join configuration event is used when available.
         this.preJoinSupported = isClassPresent("io.papermc.paper.event.connection.configuration.AsyncPlayerConnectionConfigureEvent");
         getLogger().info("Pre-join Dialog API supported: " + preJoinSupported);
 
-        // Register event listener modules
         if (preJoinSupported) {
             registerListener(new ConnectionConfigureListener(this));
         }
@@ -93,17 +87,14 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         registerListener(new PlayerDisconnectListener(this));
         registerListener(new PostJoinAuthListener(this));
 
-        // Register /sparklogin command (admin)
         Objects.requireNonNull(getCommand("sparklogin")).setExecutor(this);
         Objects.requireNonNull(getCommand("sparklogin")).setTabCompleter(this);
 
-        // Register /changepassword command (player)
         PluginCommand changePassCmd = getCommand("changepassword");
         if (changePassCmd != null) {
             changePassCmd.setExecutor(new ChangePasswordCommand(this));
         }
 
-        // Register /accounts command (player)
         PluginCommand accountsCmd = getCommand("accounts");
         if (accountsCmd != null) {
             accountsCmd.setExecutor(new com.pavitraxd.sparklogin.command.AccountsCommand(this));
@@ -116,7 +107,6 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
     public void onDisable() {
         getLogger().info("Shutting down SparkLogin...");
 
-        // Disconnect any players still stuck in authentication limbo
         Component shutdownKick = Component.text("Server is performing a reload or restarting. Please reconnect shortly.");
         for (UUID uuid : activeConnections.keySet()) {
             PlayerConfigurationConnection conn = activeConnections.get(uuid);
@@ -126,12 +116,12 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         }
         activeConnections.clear();
         activeAudiences.clear();
-        for (CompletableFuture<Boolean> f : pendingAuthFutures.values()) {
-            f.cancel(false);
+
+        for (CompletableFuture<Boolean> future : pendingAuthFutures.values()) {
+            future.cancel(false);
         }
         pendingAuthFutures.clear();
 
-        // Safely shut down database pool
         if (databaseManager != null) {
             databaseManager.close();
         }
@@ -142,8 +132,6 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
     private void registerListener(Listener listener) {
         getServer().getPluginManager().registerEvents(listener, this);
     }
-
-    // --- Core Database DAO & Service Exposes ---
 
     public AccountDAO getAccountDAO() {
         return accountDAO;
@@ -173,7 +161,6 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         return preJoinSupported;
     }
 
-    /** Called by ConnectionConfigureListener to mark that pre-join handled this player. */
     public void markPreJoinHandled(UUID uuid) {
         preJoinHandled.add(uuid);
     }
@@ -199,8 +186,6 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         return databaseManager;
     }
 
-    // --- Pre-Join Connection Tracking ---
-
     public void registerActiveJoinConnection(UUID uuid, PlayerConfigurationConnection connection, Audience audience) {
         activeConnections.put(uuid, connection);
         activeAudiences.put(uuid, audience);
@@ -223,22 +208,12 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         return activeAudiences.get(uuid);
     }
 
-    // --- Pending Auth Future Management ---
-
-    /**
-     * Creates a new pending auth future for the given UUID and returns it.
-     * The config listener will block on this future until it is completed.
-     */
     public CompletableFuture<Boolean> createPendingAuth(UUID uuid) {
         CompletableFuture<Boolean> future = new CompletableFuture<>();
         pendingAuthFutures.put(uuid, future);
         return future;
     }
 
-    /**
-     * Resolves the pending auth future (called from DialogInputListener).
-     * true = authenticated, false = failed/cancelled.
-     */
     public void completePendingAuth(UUID uuid, boolean success) {
         CompletableFuture<Boolean> future = pendingAuthFutures.remove(uuid);
         if (future != null) {
@@ -246,17 +221,12 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
         }
     }
 
-    /**
-     * Cancels the pending auth future (called on disconnect).
-     */
     public void cancelPendingAuth(UUID uuid) {
         CompletableFuture<Boolean> future = pendingAuthFutures.remove(uuid);
         if (future != null) {
             future.cancel(false);
         }
     }
-
-    // --- Command Executor Implementation ---
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -300,14 +270,12 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
                 if (deleted) {
                     sender.sendMessage(Component.text("§aSuccessfully unregistered profile uuid: " + targetUuid));
 
-                    // Invalidate active connection if they are logging in right now
                     PlayerConfigurationConnection activeConn = activeConnections.get(targetUuid);
                     if (activeConn != null) {
                         activeConn.disconnect(Component.text("§cYour account has been removed by an administrator. Please register again."));
                         deregisterActiveJoinConnection(targetUuid);
                     }
 
-                    // Kick online player if they are currently in-game
                     Player onlinePlayer = Bukkit.getPlayer(targetUuid);
                     if (onlinePlayer != null && onlinePlayer.isOnline()) {
                         onlinePlayer.kick(Component.text("§cYour account has been removed by an administrator. Please register again."));
@@ -338,13 +306,11 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
             this.accountDAO.resetPassword(targetUuid).thenAccept(v -> {
                 sender.sendMessage(Component.text("§aPassword for " + target + " has been reset. They will be prompted to re-register on next join."));
 
-                // Kick online player so they must go through the reset flow
                 Player onlinePlayer = Bukkit.getPlayer(targetUuid);
                 if (onlinePlayer != null && onlinePlayer.isOnline()) {
                     onlinePlayer.kick(Component.text("§cYour password has been reset by an administrator. Please reconnect to register again."));
                 }
 
-                // Cancel pending auth if they're in the config phase
                 PlayerConfigurationConnection activeConn = activeConnections.get(targetUuid);
                 if (activeConn != null) {
                     activeConn.disconnect(Component.text("§cYour password has been reset by an administrator. Please reconnect to register again."));
@@ -403,8 +369,6 @@ public class SparkLoginPlugin extends JavaPlugin implements CommandExecutor, Tab
 
         return false;
     }
-
-    // --- Command Tab Completer Implementation ---
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
