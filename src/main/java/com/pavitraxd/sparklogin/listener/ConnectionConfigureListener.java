@@ -18,13 +18,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Handles early pre-join checks during the AsyncPlayerConnectionConfigureEvent (Paper 1.21.11+).
- * <p>
- * The event runs on an async thread, so it is safe to block here.  After showing the
- * login/register dialog we <b>block the thread</b> on a {@link CompletableFuture} that
- * {@link DialogInputListener} will complete when the player submits or cancels.  Only after
- * the future resolves do we call {@code completeReconfiguration()} to let the player into
- * the server — or disconnect them if auth failed / was cancelled.
+ * Handles pre-join authentication during Paper's asynchronous connection configuration stage.
+ * The connection remains in configuration until the authentication dialog is completed.
  */
 public class ConnectionConfigureListener implements Listener {
     private final SparkLoginPlugin plugin;
@@ -46,74 +41,63 @@ public class ConnectionConfigureListener implements Listener {
         if (uuid == null || name == null) return;
 
         Audience audience = connection.getAudience();
-
-        // Resolve the player's IP address once at the top.
         String ip = resolveIp(connection);
 
-        // Reset any cached login attempts upon reconnect
         plugin.getAuthService().resetAttempts(uuid);
-
-        // Track the connection for dialog callback use
         plugin.registerActiveJoinConnection(uuid, connection, audience);
-        // Mark this player as handled by pre-join so PostJoinAuthListener skips them
         plugin.markPreJoinHandled(uuid);
 
-        // --- Block on the account lookup ---
         Account account;
         try {
             account = plugin.getAccountDAO().getAccount(uuid).join();
         } catch (Exception e) {
-            plugin.getLogger().severe("Exception processing pre-join configs for " + name + ": " + e.getMessage());
+            plugin.getLogger().severe("Exception processing pre-join authentication for " + name + ": " + e.getMessage());
             connection.disconnect(Component.text("A database connection error occurred. Please try reconnecting."));
             plugin.deregisterActiveJoinConnection(uuid);
             return;
         }
 
-        if (!connection.isConnected()) return;
+        if (!connection.isConnected()) {
+            plugin.deregisterActiveJoinConnection(uuid);
+            return;
+        }
 
-        // === NEW PLAYER (account == null) ===
         if (account == null) {
-            // --- Max accounts per IP check ---
             int maxAccounts = plugin.getConfig().getInt("registration.max-accounts-per-ip", 3);
             if (maxAccounts > 0 && ip != null) {
                 try {
                     int existing = plugin.getAccountDAO().countAccountsForIp(ip).join();
                     if (existing >= maxAccounts) {
                         boolean kick = plugin.getConfig().getBoolean("registration.kick-on-limit", true);
-                        Component limitMsg = plugin.getMessages().getComponent("register.error.ip-limit",
-                                "<red>Too many accounts are registered from your IP address. Registration is disabled for this IP.</red>");
+                        Component limitMsg = plugin.getMessages().getComponent(
+                                "register.error.ip-limit",
+                                "<red>Too many accounts are registered from your IP address. Registration is disabled for this IP.</red>"
+                        );
+
                         if (kick) {
                             connection.disconnect(limitMsg);
-                        } else {
-                            audience.sendMessage(limitMsg);
-                            plugin.completePendingAuth(uuid, false);
+                            plugin.deregisterActiveJoinConnection(uuid);
+                            return;
                         }
-                        plugin.deregisterActiveJoinConnection(uuid);
-                        return;
+
+                        // The configured non-kick mode warns the player but still lets them register.
+                        audience.sendMessage(limitMsg);
                     }
                 } catch (Exception e) {
-                    plugin.getLogger().warning("Could not check IP limit for " + name + ", proceeding with registration.");
+                    plugin.getLogger().warning("Could not check IP account limit for " + name + "; proceeding with registration.");
                 }
             }
 
-            // Show register dialog and block
-            showDialogAndBlock(connection, audience, uuid,
-                    plugin.getDialogFactory().buildRegisterDialog(name));
+            showDialogAndBlock(connection, audience, uuid, plugin.getDialogFactory().buildRegisterDialog(name));
             return;
         }
 
-        // === RETURNING PLAYER ===
-
-        // --- Admin password reset → requires re-registration ---
         if (account.isRequiresRegistration()) {
-            showDialogAndBlock(connection, audience, uuid,
-                    plugin.getDialogFactory().buildAccountResetDialog(name));
+            showDialogAndBlock(connection, audience, uuid, plugin.getDialogFactory().buildAccountResetDialog(name));
             return;
         }
 
-        // --- Session restore (IP change check) ---
         if (plugin.getSessionManager().isSessionValid(account)) {
-            // If require-login-on-ip-change is enabled, check whether the IP changed.
             boolean ipChanged = false;
             if (plugin.getConfig().getBoolean("security.require-login-on-ip-change", true)) {
                 String lastIp = account.getLastLoginIp();
@@ -123,40 +107,41 @@ public class ConnectionConfigureListener implements Listener {
             }
 
             if (!ipChanged) {
-                // Session is valid AND IP unchanged → auto-login.
                 plugin.getAccountDAO().updateLastLogin(uuid, System.currentTimeMillis(), ip);
                 plugin.getSessionManager().createSession(uuid).join();
-                Component conf = plugin.getMessages().getComponent("session.restored", "<green>Your login session was restored automatically. Welcome back!</green>");
-                audience.sendMessage(conf);
+                Component restored = plugin.getMessages().getComponent(
+                        "session.restored",
+                        "<green>Your login session was restored automatically. Welcome back!</green>"
+                );
+                audience.sendMessage(restored);
                 plugin.getAuthService().resetAttempts(uuid);
                 plugin.deregisterActiveJoinConnection(uuid);
                 connection.completeReconfiguration();
                 return;
             }
-            // IP changed → fall through to login dialog below.
         }
 
-        // --- Show login dialog and block ---
-        showDialogAndBlock(connection, audience, uuid,
-                plugin.getDialogFactory().buildLoginDialog(name));
+        showDialogAndBlock(connection, audience, uuid, plugin.getDialogFactory().buildLoginDialog(name));
     }
 
     /**
-     * Shows a dialog to the player and blocks the current async thread until the
-     * dialog response is processed.  On success the player is let into the server;
-     * on failure/cancel they are disconnected.
+     * Registers the response future before displaying the dialog so a fast response
+     * cannot arrive before the listener is ready to receive it.
      */
-    private void showDialogAndBlock(PlayerConfigurationConnection connection, Audience audience,
-                                   UUID uuid, Dialog dialog) {
-        audience.showDialog(dialog);
-
+    private void showDialogAndBlock(
+            PlayerConfigurationConnection connection,
+            Audience audience,
+            UUID uuid,
+            Dialog dialog
+    ) {
         CompletableFuture<Boolean> authFuture = plugin.createPendingAuth(uuid);
+        boolean authenticated = false;
 
-        boolean authenticated;
         try {
+            audience.showDialog(dialog);
             authenticated = authFuture.get(5, TimeUnit.MINUTES);
         } catch (Exception e) {
-            authenticated = false;
+            plugin.getLogger().fine("Pre-join authentication did not complete for " + uuid + ": " + e.getMessage());
         } finally {
             plugin.cancelPendingAuth(uuid);
             plugin.deregisterActiveJoinConnection(uuid);
@@ -169,22 +154,23 @@ public class ConnectionConfigureListener implements Listener {
         }
     }
 
-    /**
-     * Extracts the player's IP address from the connection, falling back gracefully.
-     */
     private String resolveIp(PlayerConfigurationConnection connection) {
         try {
-            InetSocketAddress addr = connection.getClientAddress();
-            if (addr != null && addr.getAddress() != null) {
-                return addr.getAddress().getHostAddress();
+            InetSocketAddress address = connection.getClientAddress();
+            if (address != null && address.getAddress() != null) {
+                return address.getAddress().getHostAddress();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
+
         try {
             java.net.SocketAddress raw = connection.getAddress();
-            if (raw instanceof InetSocketAddress isa && isa.getAddress() != null) {
-                return isa.getAddress().getHostAddress();
+            if (raw instanceof InetSocketAddress address && address.getAddress() != null) {
+                return address.getAddress().getHostAddress();
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
+
         return null;
     }
 }
