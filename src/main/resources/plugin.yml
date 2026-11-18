@@ -1,10 +1,10 @@
 name: SparkLogin
-version: 3.0.0
+version: '${project.version}'
 main: com.pavitraxd.sparklogin.SparkLoginPlugin
-api-version: '1.21'
+api-version: '26.3'
 author: PavitraXD
 description: Pre-join graphical authentication Minecraft plugin using the Paper Dialog API.
-website: https://github.com/PavitraXD/SparkLogin
+website: https://github.com/nxeiv/Spark-Login
 permissions:
   sparklogin.admin:
     description: Allows reloading the plugin configuration and managing accounts.
