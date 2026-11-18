@@ -1,0 +1,40 @@
+name: Build SparkLogin
+
+on:
+  push:
+    branches:
+      - main
+      - "update/**"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Java 25 / Paper 26.3
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Build and verify
+        run: mvn --batch-mode --no-transfer-progress clean verify
+
+      - name: Upload shaded plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: SparkLogin-3.1.0-paper-26.3
+          path: target/SparkLogin-3.1.0.jar
+          if-no-files-found: error
+          retention-days: 14
